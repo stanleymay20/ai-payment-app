@@ -1,6 +1,6 @@
 # AI Payment App
 
-Full-stack AI-powered payment application with wallet transfers, transaction history, fraud risk scoring, and smart route recommendations.
+Full-stack AI-powered payment application with wallet transfers, transaction history, fraud risk scoring, smart provider routing, and auditable decision logs.
 
 ## Project Structure
 
@@ -14,14 +14,22 @@ Full-stack AI-powered payment application with wallet transfers, transaction his
 - Email/password authentication with JWT
 - Wallet system with per-user balances
 - Send and receive payments between users
-- Transaction history with timestamps
+- Transaction history with statuses (`pending`, `approved`, `failed`, `reversed`)
 - AI fraud detection:
   - Numeric risk score (0-100) per transaction
-  - Explanation for why a transaction is risky
-  - Detection from frequency + velocity + balance-drain patterns
+  - Explanation of risky signals (frequency/velocity/balance behavior)
 - Smart payment routing:
   - Simulates Stripe, PayPal, and Bank providers
-  - Chooses best provider using cost, speed, and safety signals
+  - Chooses best provider using cost, speed, and safety
+- Decision logging:
+  - Stores fraud + routing decisions with explanation and metadata
+- Production-hardening phase 1:
+  - Request validation (zod)
+  - Rate limiting for auth/payment endpoints
+  - Centralized JSON error handling
+  - Idempotency key support for payment creation
+  - Ledger entries for approved money movement
+  - Admin decision-log review endpoint
 
 ## Requirements
 
@@ -63,7 +71,7 @@ Frontend runs at `http://localhost:5173`.
 
 ## API Overview
 
-Base URL: `http://localhost:4000/api`
+Base URL: `http://localhost:4000/api/v1`
 
 ### Auth
 - `POST /auth/register` `{ name, email, password }`
@@ -74,10 +82,13 @@ Base URL: `http://localhost:4000/api`
 - `GET /users` (JWT required)
 
 ### Payments / Transactions
-- `POST /payments/route-suggestion` `{ amount, priority }`
-- `POST /payments/send` `{ recipientEmail, amount, note, priority }`
+- `POST /payments/route-suggestion` `{ amount, priority, fraudRisk? }`
+- `POST /payments/send` `{ recipientEmail, amount, note?, priority? }` + header `Idempotency-Key`
 - `GET /payments/transactions`
 - `GET /payments/decision-logs`
+
+### Admin
+- `GET /admin/decision-logs` (JWT + admin role)
 
 ## Database bootstrap
 

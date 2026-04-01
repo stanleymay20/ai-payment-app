@@ -25,6 +25,7 @@ const TransactionsPage = () => {
               <th>Direction</th>
               <th>Counterparty</th>
               <th>Amount</th>
+              <th>Status</th>
               <th>Risk</th>
               <th>Route</th>
             </tr>
@@ -38,6 +39,7 @@ const TransactionsPage = () => {
                   <td>{outgoing ? 'Sent' : 'Received'}</td>
                   <td>{outgoing ? tx.recipient_email : tx.sender_email}</td>
                   <td>${Number(tx.amount).toFixed(2)}</td>
+                  <td>{tx.status || "approved"}</td>
                   <td>
                     {tx.risk_score} {tx.is_flagged ? '⚠️' : '✅'}
                   </td>

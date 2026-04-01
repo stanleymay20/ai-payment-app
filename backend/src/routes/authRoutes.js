@@ -3,26 +3,26 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool } from '../config/db.js';
 import { env } from '../config/env.js';
+import { validate } from '../middleware/validate.js';
+import { loginSchema, registerSchema } from '../validation/schemas.js';
+import { authLimiter } from '../config/rateLimit.js';
 
 const router = express.Router();
 
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, validate(registerSchema), async (req, res, next) => {
   try {
-    const { name, email, password } = req.body;
-    if (!name || !email || !password) {
-      return res.status(400).json({ message: 'Name, email, and password are required' });
-    }
+    const { name, email, password } = req.validated.body;
 
     const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);
     if (existing.rows.length) {
       return res.status(409).json({ message: 'Email already in use' });
     }
 
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(password, 12);
     const insert = await pool.query(
       `INSERT INTO users (name, email, password_hash, wallet_balance)
        VALUES ($1, $2, $3, 1000)
-       RETURNING id, name, email, wallet_balance`,
+       RETURNING id, name, email, wallet_balance, is_admin`,
       [name, email.toLowerCase(), passwordHash]
     );
 
@@ -31,13 +31,13 @@ router.post('/register', async (req, res) => {
 
     return res.status(201).json({ user, token });
   } catch (error) {
-    return res.status(500).json({ message: 'Failed to register user', error: error.message });
+    return next(error);
   }
 });
 
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, validate(loginSchema), async (req, res, next) => {
   try {
-    const { email, password } = req.body;
+    const { email, password } = req.validated.body;
     const result = await pool.query('SELECT * FROM users WHERE email = $1', [email.toLowerCase()]);
 
     if (!result.rows.length) {
@@ -58,11 +58,12 @@ router.post('/login', async (req, res) => {
         id: user.id,
         name: user.name,
         email: user.email,
-        wallet_balance: user.wallet_balance
+        wallet_balance: user.wallet_balance,
+        is_admin: user.is_admin
       }
     });
   } catch (error) {
-    return res.status(500).json({ message: 'Failed to login', error: error.message });
+    return next(error);
   }
 });
 

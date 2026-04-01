@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import cryptoRandomString from '../utils/cryptoRandomString';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 
@@ -8,6 +9,7 @@ const SendPaymentPage = () => {
   const [route, setRoute] = useState(null);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  const [idempotencyKey, setIdempotencyKey] = useState(() => cryptoRandomString());
 
   const numericAmount = useMemo(() => Number(form.amount || 0), [form.amount]);
 
@@ -29,8 +31,9 @@ const SendPaymentPage = () => {
       const { data } = await api.post('/payments/send', {
         ...form,
         amount: numericAmount
-      });
+      }, { headers: { 'Idempotency-Key': idempotencyKey } });
       setResult(data);
+      setIdempotencyKey(cryptoRandomString());
       await refreshUser();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to send payment');
@@ -85,7 +88,7 @@ const SendPaymentPage = () => {
       {result && (
         <div className="result">
           <h3>Payment Sent</h3>
-          <p>Transaction #{result.transaction.id} completed.</p>
+          <p>Transaction #{result.transaction.id} status: <strong>{result.transaction.status || result.status}</strong>.</p>
           <p>
             Fraud Risk Score: <strong>{result.fraud.riskScore}</strong> ({result.fraud.flagged ? 'Flagged' : 'Safe'})
           </p>

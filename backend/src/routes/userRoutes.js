@@ -7,7 +7,7 @@ const router = express.Router();
 router.get('/me', authRequired, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, name, email, wallet_balance, created_at FROM users WHERE id = $1',
+      'SELECT id, name, email, wallet_balance, is_admin, created_at FROM users WHERE id = $1',
       [req.user.userId]
     );
 
@@ -23,7 +23,7 @@ router.get('/me', authRequired, async (req, res) => {
 
 router.get('/', authRequired, async (_req, res) => {
   try {
-    const result = await pool.query('SELECT id, name, email, wallet_balance FROM users ORDER BY created_at DESC');
+    const result = await pool.query('SELECT id, name, email, wallet_balance, is_admin FROM users ORDER BY created_at DESC');
     return res.json(result.rows);
   } catch (error) {
     return res.status(500).json({ message: 'Failed to fetch users', error: error.message });
