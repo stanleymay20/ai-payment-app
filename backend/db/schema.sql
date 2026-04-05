@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   recipient_id INTEGER NOT NULL REFERENCES users(id),
   amount NUMERIC(12,2) NOT NULL CHECK (amount > 0),
   note TEXT,
-  status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'failed', 'reversed')),
+  status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'manual_review', 'failed', 'reversed')),
   idempotency_key VARCHAR(120),
   risk_score INTEGER NOT NULL DEFAULT 0,
   is_flagged BOOLEAN NOT NULL DEFAULT FALSE,
@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   route_provider VARCHAR(50),
   route_fee NUMERIC(12,2) DEFAULT 0,
   route_explanation TEXT,
+  provider_reference VARCHAR(120),
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
   UNIQUE (sender_id, idempotency_key)
@@ -36,6 +37,7 @@ ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fraud_explanation TEXT;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS route_provider VARCHAR(50);
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS route_explanation TEXT;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS route_fee NUMERIC(12,2) DEFAULT 0;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS provider_reference VARCHAR(120);
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fraud_reasons TEXT[] DEFAULT '{}';
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS risk_score INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS is_flagged BOOLEAN NOT NULL DEFAULT FALSE;

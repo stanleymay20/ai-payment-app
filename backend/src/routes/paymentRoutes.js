@@ -1,14 +1,34 @@
 import express from 'express';
 import { pool } from '../config/db.js';
 import { authRequired } from '../middleware/auth.js';
-import { scoreFraudRisk } from '../services/fraudService.js';
+import { scoreFraudRisk, determineReviewStatus } from '../services/fraudService.js';
 import { suggestPaymentRoute } from '../services/routingService.js';
 import { logDecision } from '../services/decisionLogService.js';
 import { paymentLimiter } from '../config/rateLimit.js';
 import { validate } from '../middleware/validate.js';
 import { routeSuggestionSchema, sendPaymentSchema } from '../validation/schemas.js';
+import { logger } from '../services/loggerService.js';
+import { findIdempotentTransaction } from '../services/idempotencyService.js';
+import { createProviderReference } from '../services/providers/providerRegistry.js';
+import { env } from '../config/env.js';
 
 const router = express.Router();
+
+router.post('/webhooks/stripe', express.raw({ type: 'application/json' }), (req, res) => {
+  const signature = req.headers['stripe-signature'];
+  if (!signature) {
+    return res.status(400).json({ message: 'Missing stripe signature header' });
+  }
+
+  logger.info('stripe_webhook_received', {
+    signaturePresent: true,
+    payloadSize: req.body.length,
+    verification: 'placeholder',
+    secretConfigured: Boolean(env.stripeWebhookSecret)
+  });
+
+  return res.status(202).json({ message: 'Webhook received (verification scaffold)' });
+});
 
 router.post('/route-suggestion', authRequired, paymentLimiter, validate(routeSuggestionSchema), async (req, res, next) => {
   try {
@@ -25,6 +45,12 @@ router.post('/route-suggestion', authRequired, paymentLimiter, validate(routeSug
       requestId: req.requestId
     });
 
+    logger.info('routing_preview_generated', {
+      requestId: req.requestId,
+      userId: req.user.userId,
+      recommendedProvider: route.recommended.provider
+    });
+
     return res.json(route);
   } catch (error) {
     return next(error);
@@ -38,15 +64,10 @@ router.post('/send', authRequired, paymentLimiter, validate(sendPaymentSchema), 
     const { recipientEmail, amount, note, priority } = req.validated.body;
     const idempotencyKey = req.headers['idempotency-key'];
 
-    const existing = await client.query(
-      'SELECT * FROM transactions WHERE sender_id = $1 AND idempotency_key = $2 LIMIT 1',
-      [req.user.userId, idempotencyKey]
-    );
-    if (existing.rows.length) {
-      return res.status(200).json({
-        transaction: existing.rows[0],
-        idempotentReplay: true
-      });
+    const existing = await findIdempotentTransaction({ client, senderId: req.user.userId, idempotencyKey });
+    if (existing) {
+      logger.info('payment_idempotent_replay', { requestId: req.requestId, userId: req.user.userId, transactionId: existing.id });
+      return res.status(200).json({ transaction: existing, idempotentReplay: true });
     }
 
     await client.query('BEGIN');
@@ -75,6 +96,7 @@ router.post('/send', authRequired, paymentLimiter, validate(sendPaymentSchema), 
         [sender.id, recipient.id, amount, note || null, idempotencyKey]
       );
       await client.query('COMMIT');
+      logger.warn('payment_failed_insufficient_balance', { requestId: req.requestId, userId: sender.id, amount });
       return res.status(400).json({ message: 'Insufficient wallet balance', transaction: failedTx.rows[0] });
     }
 
@@ -83,14 +105,9 @@ router.post('/send', authRequired, paymentLimiter, validate(sendPaymentSchema), 
       [sender.id]
     );
 
-    const fraud = scoreFraudRisk({
-      amount,
-      recentTransactions: recent.rows,
-      senderBalance: Number(sender.wallet_balance)
-    });
-
+    const fraud = scoreFraudRisk({ amount, recentTransactions: recent.rows, senderBalance: Number(sender.wallet_balance) });
     const route = suggestPaymentRoute({ amount, priority, fraudRisk: fraud.riskScore });
-    const status = fraud.riskScore >= 70 ? 'pending' : 'approved';
+    const status = determineReviewStatus(fraud.riskScore);
 
     let updatedSenderBalance = Number(sender.wallet_balance);
     let updatedRecipientBalance = Number(recipient.wallet_balance);
@@ -98,15 +115,16 @@ router.post('/send', authRequired, paymentLimiter, validate(sendPaymentSchema), 
     if (status === 'approved') {
       updatedSenderBalance -= amount;
       updatedRecipientBalance += amount;
-
       await client.query('UPDATE users SET wallet_balance = $1 WHERE id = $2', [updatedSenderBalance, sender.id]);
       await client.query('UPDATE users SET wallet_balance = $1 WHERE id = $2', [updatedRecipientBalance, recipient.id]);
     }
 
+    const providerReference = createProviderReference(route.recommended.provider);
+
     const txResult = await client.query(
       `INSERT INTO transactions
-       (sender_id, recipient_id, amount, note, status, idempotency_key, risk_score, is_flagged, fraud_reasons, fraud_explanation, route_provider, route_fee, route_explanation)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       (sender_id, recipient_id, amount, note, status, idempotency_key, risk_score, is_flagged, fraud_reasons, fraud_explanation, route_provider, route_fee, route_explanation, provider_reference)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING *`,
       [
         sender.id,
@@ -121,7 +139,8 @@ router.post('/send', authRequired, paymentLimiter, validate(sendPaymentSchema), 
         fraud.reasons.join(' '),
         route.recommended.provider,
         route.recommended.estimatedFee,
-        route.recommended.explanation
+        route.recommended.explanation,
+        providerReference
       ]
     );
 
@@ -142,7 +161,7 @@ router.post('/send', authRequired, paymentLimiter, validate(sendPaymentSchema), 
       transactionId: tx.id,
       decisionType: 'fraud_assessment',
       riskScore: fraud.riskScore,
-      recommendation: status === 'pending' ? 'review_required' : 'approved',
+      recommendation: status,
       explanation: fraud.reasons.join(' '),
       metadata: fraud,
       requestId: req.requestId
@@ -157,6 +176,15 @@ router.post('/send', authRequired, paymentLimiter, validate(sendPaymentSchema), 
       explanation: route.selectionReason,
       metadata: route,
       requestId: req.requestId
+    });
+
+    logger.info('payment_created', {
+      requestId: req.requestId,
+      transactionId: tx.id,
+      userId: sender.id,
+      status,
+      riskBand: fraud.riskBand,
+      provider: route.recommended.provider
     });
 
     return res.status(201).json({ transaction: tx, route, fraud, status });

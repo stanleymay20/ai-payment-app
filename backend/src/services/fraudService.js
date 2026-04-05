@@ -1,3 +1,5 @@
+import { env } from '../config/env.js';
+
 const FRAUD_CONFIG = {
   baseRisk: 8,
   largeAmountThreshold: 1500,
@@ -5,12 +7,21 @@ const FRAUD_CONFIG = {
   highVelocityWindowMinutes: 5,
   mediumVelocityWindowMinutes: 60,
   highVelocityCount: 3,
-  mediumVelocityCount: 8,
-  lateHourStartUtc: 0,
-  lateHourEndUtc: 5
+  mediumVelocityCount: 8
 };
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+export const classifyRiskBand = (riskScore) => {
+  if (riskScore >= env.fraudMediumThreshold) return 'high';
+  if (riskScore >= env.fraudLowThreshold) return 'medium';
+  return 'low';
+};
+
+export const determineReviewStatus = (riskScore) => {
+  const band = classifyRiskBand(riskScore);
+  return band === 'high' ? 'manual_review' : 'approved';
+};
 
 export const scoreFraudRisk = ({ amount, recentTransactions = [], senderBalance }) => {
   const now = Date.now();
@@ -35,7 +46,6 @@ export const scoreFraudRisk = ({ amount, recentTransactions = [], senderBalance 
     riskScore += 24;
     explanations.push(`High velocity pattern detected: ${txIn5Minutes} payments in the last ${FRAUD_CONFIG.highVelocityWindowMinutes} minutes.`);
   }
-
   if (txIn60Minutes >= FRAUD_CONFIG.mediumVelocityCount) {
     riskScore += 16;
     explanations.push(`High frequency pattern detected: ${txIn60Minutes} payments in the last hour.`);
@@ -52,21 +62,18 @@ export const scoreFraudRisk = ({ amount, recentTransactions = [], senderBalance 
     }
   }
 
-  const utcHour = new Date().getUTCHours();
-  if (utcHour >= FRAUD_CONFIG.lateHourStartUtc && utcHour <= FRAUD_CONFIG.lateHourEndUtc) {
-    riskScore += 8;
-    explanations.push('Transaction occurred during low-activity hours (UTC), which can be anomalous.');
-  }
-
   const boundedRisk = clamp(Math.round(riskScore), 0, 100);
+  const riskBand = classifyRiskBand(boundedRisk);
+
   return {
     riskScore: boundedRisk,
-    flagged: boundedRisk >= 60,
+    riskBand,
+    flagged: riskBand !== 'low',
+    requiresManualReview: riskBand === 'high',
     reasons: explanations.length ? explanations : ['No significant fraud indicators detected.'],
     metrics: {
       txIn5Minutes,
-      txIn60Minutes,
-      balanceRatio: balanceNum > 0 ? Number((amountNum / balanceNum).toFixed(3)) : null
+      txIn60Minutes
     }
   };
 };

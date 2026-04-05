@@ -1,32 +1,29 @@
 # Architecture
 
 ## Backend (`/backend`)
-- Express REST API with versioned entrypoint (`/api/v1`) and backward-compatible `/api` alias.
-- Security middleware: `helmet`, request IDs, and endpoint rate limiting.
-- Validation middleware with `zod` schemas for auth/payment payloads.
-- Centralized not-found + error handlers for consistent JSON errors.
+- Express REST API with versioned entrypoint (`/api/v1`) and `/api` compatibility path.
+- Security middleware: `helmet`, request IDs, endpoint rate limiting, and route-level validation.
+- Centralized not-found + error handlers with structured logs.
 - Modular services:
-  - `fraudService`: deterministic risk scoring from frequency, velocity, and behavior features.
-  - `routingService`: weighted provider selection across Stripe/PayPal/Bank.
-  - `decisionLogService`: explainable decision persistence with model version and request ID.
-- Payment flow supports idempotency keys and transaction statuses (`pending`, `approved`, `failed`, `reversed`).
-- Ledger persistence via `ledger_entries` for approved debits/credits.
-- Admin-only review endpoint for global decision logs.
-
-## Frontend (`/frontend`)
-- React + Vite SPA.
-- Protected routing and auth context.
-- Payment form sends idempotency key header to prevent duplicate charges.
-- Transaction and send-payment pages display risk/routing explanations and status.
+  - `fraudService`: deterministic risk scoring and configurable threshold policy (low/medium/high).
+  - `routingService`: provider scoring abstraction over Stripe/PayPal/Bank simulation.
+  - `decisionLogService`: decision persistence with model version + request ID.
+  - `idempotencyService`: duplicate payment protection utility.
+  - `loggerService`: structured JSON logs for operational tracing.
+- Payment flow supports idempotency key, transaction lifecycle states, and manual review for high risk.
+- Stripe webhook endpoint scaffold added for later real-provider integration.
 
 ## Data model
 - `users`: identity, hashed credentials, admin role flag, wallet balance.
-- `transactions`: statusful transfer records with fraud/routing metadata + idempotency.
-- `ledger_entries`: durable balance movement entries for accounting traceability.
+- `transactions`: statusful transfer records, idempotency key, provider reference, fraud/routing metadata.
+- `ledger_entries`: durable accounting trail for approved balance movement.
 - `decision_logs`: auditable AI-decision trail with metadata snapshots.
 
-## Production-hardening baseline now included
-- Validation, rate limiting, centralized error handling.
-- Request IDs in responses + logs for traceability.
-- Idempotent payment creation and ledger persistence.
-- Admin review path for decision auditing.
+## Frontend (`/frontend`)
+- React + Vite SPA with protected routes.
+- Payment form sends idempotency key header.
+- UI surfaces status, fraud reasons, and routing explanation.
+
+## Test strategy (phase 2 baseline)
+- Unit tests for fraud scoring, routing, idempotency helper, and auth middleware.
+- Integration-oriented tests for admin protection and review policy behavior.

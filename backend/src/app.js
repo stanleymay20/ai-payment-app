@@ -20,6 +20,10 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
+app.get('/api/v1/health', (_req, res) => {
+  res.json({ status: 'ok' });
+});
+
 app.use('/api/v1', routes);
 app.use('/api', routes);
 

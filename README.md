@@ -23,13 +23,12 @@ Full-stack AI-powered payment application with wallet transfers, transaction his
   - Chooses best provider using cost, speed, and safety
 - Decision logging:
   - Stores fraud + routing decisions with explanation and metadata
-- Production-hardening phase 1:
-  - Request validation (zod)
-  - Rate limiting for auth/payment endpoints
-  - Centralized JSON error handling
-  - Idempotency key support for payment creation
-  - Ledger entries for approved money movement
-  - Admin decision-log review endpoint
+- Production-hardening phase 2 additions:
+  - Structured logging for key payment/routing/fraud events
+  - Configurable fraud thresholds + low/medium/high policy bands
+  - Manual review status for high-risk transactions
+  - Stripe integration scaffold + webhook verification placeholder
+  - Unit/integration-oriented backend tests using `node:test`
 
 ## Requirements
 
@@ -73,6 +72,8 @@ Frontend runs at `http://localhost:5173`.
 
 Base URL: `http://localhost:4000/api/v1`
 
+Health: `GET /api/v1/health`
+
 ### Auth
 - `POST /auth/register` `{ name, email, password }`
 - `POST /auth/login` `{ email, password }`
@@ -84,6 +85,7 @@ Base URL: `http://localhost:4000/api/v1`
 ### Payments / Transactions
 - `POST /payments/route-suggestion` `{ amount, priority, fraudRisk? }`
 - `POST /payments/send` `{ recipientEmail, amount, note?, priority? }` + header `Idempotency-Key`
+- `POST /payments/webhooks/stripe` (scaffold placeholder with signature header check)
 - `GET /payments/transactions`
 - `GET /payments/decision-logs`
 
@@ -107,3 +109,13 @@ If SSL is required, set `DB_SSL=true`.
 ## Docs
 
 See `docs/architecture.md` for architecture details.
+
+
+## Testing
+
+Run backend tests:
+
+```bash
+cd backend
+npm test
+```
